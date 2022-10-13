@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+  <head></head>
+  <body>
+    <script type="module">
+      (async () => {
+        const memory = new WebAssembly.Memory({ initial: 256 });
+        const response = await fetch('./build/base64.wasm');
+        const bytes = await response.arrayBuffer();
+        const { instance } = await WebAssembly.instantiate(bytes, {
+          env: { memory }
+        });
+
+        console.log(instance.exports)
+      })();
+    </script>
+  </body>
+</html>
