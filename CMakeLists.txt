@@ -11,7 +11,8 @@ target_link_options(${TARGET_TEST_EXE} PRIVATE
   "-v"
   # "-nostartfiles"
   # "-Wl,--no-entry"
-  "-Wl,--import-memory,--export-dynamic,--export=malloc,--export=free,--import-undefined,--export-table"
+  # "-Wl,--import-memory"
+  "-Wl,--initial-memory=16777216,--export-dynamic,--export=malloc,--export=free,--import-undefined,--export-table"
 )
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")

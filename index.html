@@ -40,16 +40,7 @@
           new StandardOutput(1024, console.error)
         ]
 
-        const memory = new WebAssembly.Memory({ initial: 256 })
-        
-        function getMemory() {
-          return {
-            HEAPU8: new Uint8Array(memory.buffer),
-            HEAPU16: new Uint16Array(memory.buffer),
-            HEAP32: new Int32Array(memory.buffer),
-            HEAPU32: new Uint32Array(memory.buffer)
-          }
-        }
+        // const memory = new WebAssembly.Memory({ initial: 256 })
 
         const args = ['node', 'index.js']
         const argBuf = new TextEncoder().encode(args.join('\0') + '\0')
@@ -58,7 +49,7 @@
         const bytes = await response.arrayBuffer()
         const { instance } = await WebAssembly.instantiate(bytes, {
           env: {
-            memory,
+            // memory,
             call_js (f) {
               __indirect_function_table.get(f)()
             }
@@ -115,6 +106,7 @@
 
         console.log(instance.exports)
         const {
+          memory,
           _start,
           malloc,
           free,
@@ -122,6 +114,15 @@
           base64_decode,
           __indirect_function_table
         } = instance.exports
+
+        function getMemory() {
+          return {
+            HEAPU8: new Uint8Array(memory.buffer),
+            HEAPU16: new Uint16Array(memory.buffer),
+            HEAP32: new Int32Array(memory.buffer),
+            HEAPU32: new Uint32Array(memory.buffer)
+          }
+        }
 
         if (typeof _start === 'function') {
           _start()
