@@ -1,4 +1,12 @@
-import { WASI } from './wasi.js'
+let WASI
+
+const isNodeJs = !!(typeof process === 'object' && process.versions && process.versions.node)
+
+if (isNodeJs) {
+  WASI = (await import('node:wasi')).WASI
+} else {
+  WASI = (await import('./wasi.js')).WASI
+}
 
 const wasi = new WASI({
   args: ['node', 'a.wasm'],
@@ -9,8 +17,10 @@ const wasi = new WASI({
 })
 
 // const memory = new WebAssembly.Memory({ initial: 256 })
+const url = new URL('./build/a.wasm', import.meta.url)
 
-const { instance } = await WebAssembly.instantiateStreaming(fetch('./build/a.wasm'), {
+const bytes = isNodeJs ? await (await import('node:fs')).promises.readFile(url) : await (await fetch(url)).arrayBuffer()
+const { instance, module } = await WebAssembly.instantiate(bytes, {
   env: {
     // memory,
     call_js (f) {
@@ -20,7 +30,8 @@ const { instance } = await WebAssembly.instantiateStreaming(fetch('./build/a.was
   wasi_snapshot_preview1: wasi.wasiImport
 })
 
-console.log(instance.exports)
+// console.log(WebAssembly.Module.imports(module))
+// console.log(WebAssembly.Module.exports(module))
 const {
   memory,
   malloc,
