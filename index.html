@@ -5,13 +5,71 @@
     <script type="module">
       (async () => {
         const memory = new WebAssembly.Memory({ initial: 256 });
-        const response = await fetch('./build/base64.wasm');
+        
+        function getMemory() {
+          return {
+            HEAPU8: new Uint8Array(memory.buffer),
+            HEAPU16: new Uint16Array(memory.buffer),
+            HEAPU32: new Uint32Array(memory.buffer)
+          }
+        }
+
+        const stdout = new Uint8Array(1024)
+        let stdoutPos = 0
+
+        const response = await fetch('./build/a.wasm');
         const bytes = await response.arrayBuffer();
         const { instance } = await WebAssembly.instantiate(bytes, {
-          env: { memory }
+          env: { memory },
+          wasi_snapshot_preview1: {
+            proc_exit: function (rval) {
+              console.log('proc_exit: ' + rval)
+            },
+            fd_close: function (fd) {
+              console.log('fd_close: ' + fd)
+              return 0
+            },
+            fd_fdstat_get: function (fd, fdstat) {
+              console.log('fd_fdstat_get: ' + fd + ', ' + fdstat)
+              return 0
+            },
+            fd_seek(fd, offset, whence, filesize) {
+              console.log('fd_seek: ' + fd + ', ' + offset + ', ' + whence + ', ' + filesize)
+              return 0
+            },
+            fd_write(fd, iovs, iovslen, size) {
+              console.log('fd_write: ' + fd + ', ' + iovs + ', ' + iovslen + ', ' + size)
+              const { HEAPU8, HEAPU32 } = getMemory()
+              let nwritten = 0
+              for (let i = 0; i < iovslen; ++i) {
+                const buf = HEAPU32[(iovs + (i * 8)) >> 2]
+                const bufLen = HEAPU32[((iovs + (i * 8)) >> 2) + 1]
+                if (bufLen === 0) continue
+
+                if (fd === 1) {
+                  stdout.set(HEAPU8.subarray(buf, buf + bufLen), stdoutPos)
+                  stdoutPos += bufLen
+                }
+                nwritten += bufLen
+              }
+
+              HEAPU32[size >> 2] = nwritten
+
+              if (fd === 1 && stdout[stdoutPos - 1] === 10) {
+                console.log(new TextDecoder().decode(stdout.subarray(0, stdoutPos)))
+                stdout.fill(0)
+                stdoutPos = 0
+              }
+              return 0
+            }
+          }
         });
 
         console.log(instance.exports)
+
+        if (instance.exports._start) {
+          instance.exports._start()
+        }
       })();
     </script>
   </body>

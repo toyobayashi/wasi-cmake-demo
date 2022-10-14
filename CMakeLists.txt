@@ -2,13 +2,19 @@ cmake_minimum_required(VERSION 3.13.0)
 
 project(wasitest)
 
-add_executable(base64 "src/base64.c" "src/malloc.c")
-set_target_properties(base64 PROPERTIES SUFFIX ".wasm")
+set(TARGET_TEST_EXE a)
 
-target_link_options(base64
-  PRIVATE "-v"
-  PRIVATE "-nostartfiles"
-  PRIVATE "-Wl,--no-entry"
-  PRIVATE "-Wl,--import-memory"
-  PRIVATE "-Wl,--export-dynamic"
+add_executable(${TARGET_TEST_EXE} "src/base64.c" "src/main.c")
+set_target_properties(${TARGET_TEST_EXE} PROPERTIES SUFFIX ".wasm")
+
+target_link_options(${TARGET_TEST_EXE} PRIVATE
+  "-v"
+  # "-nostartfiles"
+  "-Wl,--no-entry,--import-memory,--export-dynamic,--export=malloc,--export=free"
 )
+
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+  target_link_options(${TARGET_TEST_EXE} PRIVATE
+    "-Wl,--strip-all"
+  )
+endif()
