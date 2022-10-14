@@ -3,12 +3,14 @@
 
 #include <stddef.h>
 
+#define WASI_EXPORT __attribute__((visibility("default")))
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-__attribute__((visibility("default"))) size_t base64_encode(const unsigned char* src, size_t len, char* dst);
-__attribute__((visibility("default"))) size_t base64_decode(const char* src, size_t len, unsigned char* dst);
+WASI_EXPORT size_t base64_encode(const unsigned char* src, size_t len, char* dst);
+WASI_EXPORT size_t base64_decode(const char* src, size_t len, unsigned char* dst);
 
 #ifdef __cplusplus
 }

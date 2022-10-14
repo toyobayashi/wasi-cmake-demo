@@ -10,7 +10,8 @@ set_target_properties(${TARGET_TEST_EXE} PROPERTIES SUFFIX ".wasm")
 target_link_options(${TARGET_TEST_EXE} PRIVATE
   "-v"
   # "-nostartfiles"
-  "-Wl,--no-entry,--import-memory,--export-dynamic,--export=malloc,--export=free"
+  # "-Wl,--no-entry"
+  "-Wl,--import-memory,--export-dynamic,--export=malloc,--export=free,--import-undefined,--export-table"
 )
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
