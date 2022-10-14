@@ -8,11 +8,11 @@ const __dirname = path.dirname(__filename)
 const config = {
   mode: 'production',
   entry: {
-    main: path.join(__dirname, './webpack/main.js')
+    app: path.join(__dirname, './index.js')
   },
   output: {
     filename: '[name].js',
-    path: path.join(__dirname, './webpack/dist')
+    path: path.join(__dirname, './webpack')
   },
   module: {
     rules: [
