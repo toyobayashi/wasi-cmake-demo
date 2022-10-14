@@ -181,6 +181,23 @@ export class WASI {
 
     return this[kExitCode]
   }
+
+  initialize (instance) {
+    if (this[kStarted]) {
+      throw new Error('WASI instance has already started')
+    }
+    this[kStarted] = true
+
+    setupInstance(this, instance)
+
+    const { _start, _initialize } = instance.exports
+    if (_start !== undefined) {
+      throw new TypeError('instance.exports._start is not undefined')
+    }
+    if (typeof _initialize === 'function') {
+      _initialize()
+    }
+  }
 }
 
 function wasiReturnOnProcExit (rval) {
