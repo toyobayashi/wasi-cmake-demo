@@ -9,6 +9,7 @@ set_target_properties(${TARGET_TEST_EXE} PROPERTIES SUFFIX ".wasm")
 
 target_link_options(${TARGET_TEST_EXE} PRIVATE
   "-v"
+  # "-mexec-model=reactor"
   # "-nostartfiles"
   # "-Wl,--no-entry"
   # "-Wl,--import-memory"

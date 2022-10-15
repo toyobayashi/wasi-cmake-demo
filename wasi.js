@@ -1,150 +1,104 @@
-class OutputStream {
-  constructor (size) {
-    this._buf = new Uint8Array(size)
-    this._pos = 0
-  }
+import { WASI as _WASI } from './wasi-impl.js'
 
-  write (buffer) {
-    this._buf.set(buffer, this._pos)
-    this._pos += buffer.byteLength
+function validateObject (value, name) {
+  if (value === null || typeof value !== 'object') {
+    throw new TypeError(`${name} must be an object. Received ${value === null ? 'null' : typeof value}`)
   }
 }
 
-class StandardOutput extends OutputStream {
-  constructor (size, print) {
-    super(size)
-    this._print = print
-  }
-  write (buffer) {
-    super.write(buffer)
-    let index
-    while ((index = this._buf.indexOf(10)) !== -1) {
-      const str = new TextDecoder().decode(this._buf.subarray(0, index))
-      this._print(str)
-      this._buf.set(this._buf.subarray(index + 1, this._pos))
-      this._pos -= (index + 1)
-      this._buf.fill(0, this._pos)
-    }
+function validateArray (value, name) {
+  if (!Array.isArray(value)) {
+    throw new TypeError(`${name} must be an array. Received ${value === null ? 'null' : typeof value}`)
   }
 }
 
+function validateBoolean (value, name) {
+  if (typeof value !== 'boolean') {
+    throw new TypeError(`${name} must be a boolean. Received ${value === null ? 'null' : typeof value}`)
+  }
+}
+
+function validateFunction (value, name) {
+  if (typeof value !== 'function') {
+    throw new TypeError(`${name} must be a function. Received ${value === null ? 'null' : typeof value}`)
+  }
+}
+
+function validateUndefined (value, name) {
+  if (value !== undefined) {
+    throw new TypeError(`${name} must be undefined. Received ${value === null ? 'null' : typeof value}`)
+  }
+}
+
+function validateInt32 (value, name, min = -2147483648, max = 2147483647) {
+  if (typeof value !== 'number') {
+    throw new TypeError(`${name} must be a number. Received ${value === null ? 'null' : typeof value}`)
+  }
+  if (!Number.isInteger(value)) {
+    throw new RangeError(`${name} must be a integer.`)
+  }
+  if (value < min || value > max) {
+    throw new RangeError(`${name} must be >= ${min} && <= ${max}. Received ${value}`)
+  }
+}
+
+const kEmptyObject = Object.freeze(Object.create(null))
 const kExitCode = Symbol('kExitCode')
 const kSetMemory = Symbol('kSetMemory')
 const kStarted = Symbol('kStarted')
 const kInstance = Symbol('kInstance')
 
 function setupInstance (self, instance) {
+  validateObject(instance, 'instance')
+  validateObject(instance.exports, 'instance.exports')
+
   self[kInstance] = instance
   self[kSetMemory](instance.exports.memory)
 }
 
-class _WASI {
-  constructor (args, env, preopens, stdio) {
-    const encoder = new TextEncoder()
-    const argBuf = encoder.encode(args.join('\0') + '\0')
-    const envEntries = Object.entries(env).map(([key, value]) => `${key}=${value}`)
-    const envBuf = encoder.encode(envEntries.join('\0') + '\0')
-    const streams = []
-    streams[stdio[0]] = undefined
-    streams[stdio[1]] = new StandardOutput(1024, console.log)
-    streams[stdio[2]] = new StandardOutput(1024, console.error)
-
-    let _memory
-
-    this._setMemory = function (m) {
-      _memory = m
-    }
-
-    const getMemory = () => {
-      return {
-        HEAPU8: new Uint8Array(_memory.buffer),
-        HEAPU16: new Uint16Array(_memory.buffer),
-        HEAP32: new Int32Array(_memory.buffer),
-        HEAPU32: new Uint32Array(_memory.buffer)
-      }
-    }
-
-    this.proc_exit = function (rval) {
-      console.log(`proc_exit(${rval});`)
-    }
-    this.args_get = function (argv, argv_buf) {
-      const { HEAPU8, HEAP32 } = getMemory()
-      HEAP32[argv >> 2] = argv_buf
-      for (let i = 1; i < args.length; ++i) {
-        HEAP32[(argv >> 2) + i] = argv_buf + encoder.encode(args.slice(0, i).join('\0') + '\0').length
-      }
-      HEAPU8.set(argBuf, argv_buf)
-      return 0
-    }
-    this.args_sizes_get = function (argc, argv_buf_size) {
-      const { HEAP32, HEAPU32 } = getMemory()
-      HEAP32[argc >> 2] = args.length
-      HEAPU32[argv_buf_size >> 2] = argBuf.length
-      return 0
-    }
-    this.environ_get = function (environ, environ_buf) {
-      const { HEAPU8, HEAP32 } = getMemory()
-      HEAP32[environ >> 2] = environ_buf
-      for (let i = 1; i < envEntries.length; ++i) {
-        HEAP32[(environ >> 2) + i] = environ_buf + encoder.encode(envEntries.slice(0, i).join('\0') + '\0').length
-      }
-      HEAPU8.set(envBuf, environ_buf)
-      return 0
-    }
-    this.environ_sizes_get = function (len, buflen) {
-      const { HEAP32, HEAPU32 } = getMemory()
-      HEAP32[len >> 2] = envEntries.length
-      HEAPU32[buflen >> 2] = envBuf.length
-      return 0
-    }
-    this.fd_close = function (fd) {
-      return 0
-    }
-    this.fd_fdstat_get = function (fd, fdstat) {
-      return 0
-    }
-    this.fd_seek = function (fd, offset, whence, filesize) {
-      return 0
-    }
-    this.fd_write = function (fd, iovs, iovslen, size) {
-      const { HEAPU8, HEAP32, HEAPU32 } = getMemory()
-      let nwritten = 0
-      const stream = streams[fd]
-      for (let i = 0; i < iovslen; ++i) {
-        const buf = HEAP32[(iovs + (i * 8)) >> 2]
-        const bufLen = HEAPU32[((iovs + (i * 8)) >> 2) + 1]
-        if (bufLen === 0) continue
-
-        if (stream) {
-          const data = HEAPU8.subarray(buf, buf + bufLen)
-          stream.write(data)
-        }
-        nwritten += bufLen
-      }
-
-      HEAPU32[size >> 2] = nwritten
-      return 0
-    }
-  }
-}
-
 export class WASI {
-  constructor ({
-    args = [],
-    env = {},
-    preopens,
-    returnOnExit,
-    stdin = 0,
-    stdout = 1,
-    stderr = 2
-  } = {}) {
+  constructor (options = kEmptyObject) {
+    validateObject(options, 'options')
+
+    if (options.args !== undefined)
+      validateArray(options.args, 'options.args')
+    const args = (options.args || []).map(String)
+
+    const env = []
+    if (options.env !== undefined) {
+      validateObject(options.env, 'options.env')
+      Object.entries(options.env).forEach(({ 0: key, 1: value }) => {
+        if (value !== undefined) {
+          env.push(`${key}=${value}`)
+        }
+      })
+    }
+
+    const preopens = []
+    if (options.preopens !== undefined) {
+      validateObject(options.preopens, 'options.preopens')
+      ObjectEntries(options.preopens).forEach(
+        ({ 0: key, 1: value }) =>
+          preopens.push(String(key), String(value))
+      )
+    }
+
+    const { stdin = 0, stdout = 1, stderr = 2 } = options
+    validateInt32(stdin, 'options.stdin', 0)
+    validateInt32(stdout, 'options.stdout', 0)
+    validateInt32(stderr, 'options.stderr', 0)
     const stdio = [stdin, stdout, stderr]
+
     const wrap = new _WASI(args, env, preopens, stdio)
 
-    if (typeof returnOnExit === 'boolean') {
-      if (returnOnExit) {
+    for (const prop in wrap) {
+      wrap[prop] = wrap[prop].bind(wrap)
+    }
+
+    if (options.returnOnExit !== undefined) {
+      validateBoolean(options.returnOnExit, 'options.returnOnExit')
+      if (options.returnOnExit)
         wrap.proc_exit = wasiReturnOnProcExit.bind(this)
-      }
     }
 
     this[kSetMemory] = wrap._setMemory
@@ -155,6 +109,7 @@ export class WASI {
     this[kInstance] = undefined
   }
 
+  // Must not export _initialize, must export _start
   start (instance) {
     if (this[kStarted]) {
       throw new Error('WASI instance has already started')
@@ -163,13 +118,10 @@ export class WASI {
 
     setupInstance(this, instance)
 
-    const { _start, _initialize } = instance.exports
-    if (typeof _start !== 'function') {
-      throw new TypeError('instance.exports._start is not a function')
-    }
-    if (_initialize !== undefined) {
-      throw new TypeError('instance.exports._initialize is not undefined')
-    }
+    const { _start, _initialize } = this[kInstance].exports
+
+    validateFunction(_start, 'instance.exports._start')
+    validateUndefined(_initialize, 'instance.exports._initialize')
 
     try {
       _start()
@@ -182,6 +134,7 @@ export class WASI {
     return this[kExitCode]
   }
 
+  // Must not export _start, may optionally export _initialize
   initialize (instance) {
     if (this[kStarted]) {
       throw new Error('WASI instance has already started')
@@ -190,11 +143,11 @@ export class WASI {
 
     setupInstance(this, instance)
 
-    const { _start, _initialize } = instance.exports
-    if (_start !== undefined) {
-      throw new TypeError('instance.exports._start is not undefined')
-    }
-    if (typeof _initialize === 'function') {
+    const { _start, _initialize } = this[kInstance].exports
+    
+    validateUndefined(_start, 'instance.exports._start')
+    if (_initialize !== undefined) {
+      validateFunction(_initialize, 'instance.exports._initialize')
       _initialize()
     }
   }
