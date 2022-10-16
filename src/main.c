@@ -6,8 +6,10 @@ extern char **environ;
 void call_js(void (*)());
 
 void print() {
+  char buf[128];
+  scanf("%s", buf);
   printf("Hello");
-  printf(" wasi\n");
+  printf(" %s\n", buf);
 }
 
 int main(int argc, char** argv) {

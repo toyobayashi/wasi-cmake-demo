@@ -1,41 +1,43 @@
 import { WasiErrno } from './wasi-types.js'
 
+function debug (...args) {
+  if (typeof process === 'undefined' || process.type === 'renderer' || process.browser === true || process.__nwjs) {
+    console.debug(...args)
+  } else {
+    if (process.env.DEBUG) {
+      console.debug(...args)
+    }
+  }
+}
+
 class StandardInput {
   constructor () {
     this._bufs = []
   }
 
   _push () {
-    const value = window.prompt() || ''
-    if (!value) return
-    const buffer = new TextEncoder().encode(value)
+    const value = window.prompt()
+    if (value === null) return false
+    const buffer = new TextEncoder().encode(value + '\x0a')
     this._bufs.push(buffer)
+    return true
   }
 
   read (u8arr) {
     if (this._bufs.length === 0) {
-      this._push()
-      return this.read(u8arr)
-    }
-    const bufferredLength = this._bufs.slice().reduce((p, c) => (p + c.length), 0)
-    if (u8arr.length >= bufferredLength) {
-      let pos = 0
-      for (let i = 0; i < this._bufs.length; ++i) {
-        const buf = this._bufs[i];
-        u8arr.set(buf, pos)
-        pos += buf.length
+      if (!this._push()) {
+        return -WasiErrno.ECANCELED
       }
-      this._bufs.length = 0
-      return pos
     }
-    
+
     let pos = 0
     let left = u8arr.length
     while (this._bufs.length > 0) {
       const buf = this._bufs.shift()
-      if (left >= buf.length) {
+      if (left > buf.length) {
         u8arr.set(buf, pos)
         pos += buf.length
+        left -= buf.length
       } else {
         u8arr.set(buf.subarray(0, left), pos)
         pos += left
@@ -117,7 +119,7 @@ const WASI = /*#__PURE__*/ (function () {
   }
   
   WASI.prototype.args_get = function args_get (argv, argv_buf) {
-    console.debug('args_get(%d, %d)', argv, argv_buf)
+    debug('args_get(%d, %d)', argv, argv_buf)
     if (argv === 0 || argv_buf === 0) {
       return WasiErrno.EINVAL
     }
@@ -134,7 +136,7 @@ const WASI = /*#__PURE__*/ (function () {
   }
   
   WASI.prototype.args_sizes_get = function args_sizes_get (argc, argv_buf_size) {
-      console.debug('args_sizes_get(%d, %d)', argc, argv_buf_size)
+      debug('args_sizes_get(%d, %d)', argc, argv_buf_size)
       if (argc === 0 || argv_buf_size === 0) {
         return WasiErrno.EINVAL
       }
@@ -147,7 +149,7 @@ const WASI = /*#__PURE__*/ (function () {
     }
   
   WASI.prototype.environ_get = function environ_get (environ, environ_buf) {
-    console.debug('environ_get(%d, %d)', environ, environ_buf)
+    debug('environ_get(%d, %d)', environ, environ_buf)
     if (environ === 0 || environ_buf === 0) {
       return WasiErrno.EINVAL
     }
@@ -164,7 +166,7 @@ const WASI = /*#__PURE__*/ (function () {
   }
   
   WASI.prototype.environ_sizes_get = function environ_sizes_get (len, buflen) {
-    console.debug('environ_sizes_get(%d, %d)', len, buflen)
+    debug('environ_sizes_get(%d, %d)', len, buflen)
     if (len === 0 || buflen === 0) {
       return WasiErrno.EINVAL
     }
@@ -176,22 +178,22 @@ const WASI = /*#__PURE__*/ (function () {
   }
   
   WASI.prototype.fd_close = function fd_close (fd) {
-    console.debug('fd_close(%d)', fd)
+    debug('fd_close(%d)', fd)
     return WasiErrno.ESUCCESS
   }
   
   WASI.prototype.fd_fdstat_get = function fd_fdstat_get (fd, fdstat) {
-    console.debug('fd_fdstat_get(%d, %d)', fd, fdstat)
+    debug('fd_fdstat_get(%d, %d)', fd, fdstat)
     return WasiErrno.ESUCCESS
   }
   
   WASI.prototype.fd_seek = function fd_seek (fd, offset, whence, filesize) {
-    console.debug('fd_seek(%d, %d, %d, %d)', fd, offset, whence, filesize)
+    debug('fd_seek(%d, %d, %d, %d)', fd, offset, whence, filesize)
     return WasiErrno.ESUCCESS
   }
 
   WASI.prototype.fd_read = function fd_read (fd, iovs, iovslen, size) {
-    console.debug('fd_read(%d, %d, %d, %d)', fd, iovs, iovslen, size)
+    debug('fd_read(%d, %d, %d, %d)', fd, iovs, iovslen, size)
     if (iovs === 0 || size === 0) {
       return WasiErrno.EINVAL
     }
@@ -199,14 +201,32 @@ const WASI = /*#__PURE__*/ (function () {
     let nread = 0
     const wasi = _wasi.get(this)
     const stream = wasi.fds[fd]
+    if (!stream) {
+      HEAPU32[size >> 2] = 0
+      return WasiErrno.EBADF
+    }
 
-    // TODO
+    for (let i = 0; i < iovslen; ++i) {
+      const buf = HEAP32[(iovs + (i * 8)) >> 2]
+      const bufLen = HEAPU32[((iovs + (i * 8)) >> 2) + 1]
 
+      const read = stream.read(HEAPU8.subarray(buf, buf + bufLen))
+      if (read < 0) {
+        HEAPU32[size >> 2] = 0
+        return WasiErrno.ESUCCESS
+      }
+      nread += read
+      if (read <= bufLen) {
+        break
+      }
+    }
+
+    HEAPU32[size >> 2] = nread
     return WasiErrno.ESUCCESS
   }
   
   WASI.prototype.fd_write = function fd_write (fd, iovs, iovslen, size) {
-    console.debug('fd_write(%d, %d, %d, %d)', fd, iovs, iovslen, size)
+    debug('fd_write(%d, %d, %d, %d)', fd, iovs, iovslen, size)
     if (iovs === 0 || size === 0) {
       return WasiErrno.EINVAL
     }
@@ -214,15 +234,17 @@ const WASI = /*#__PURE__*/ (function () {
     let nwritten = 0
     const wasi = _wasi.get(this)
     const stream = wasi.fds[fd]
+    if (!stream) {
+      HEAPU32[size >> 2] = 0
+      return WasiErrno.EBADF
+    }
     for (let i = 0; i < iovslen; ++i) {
       const buf = HEAP32[(iovs + (i * 8)) >> 2]
       const bufLen = HEAPU32[((iovs + (i * 8)) >> 2) + 1]
       if (bufLen === 0) continue
   
-      if (stream) {
-        const data = HEAPU8.subarray(buf, buf + bufLen)
-        stream.write(data)
-      }
+      const data = HEAPU8.subarray(buf, buf + bufLen)
+      stream.write(data)
       nwritten += bufLen
     }
   
@@ -231,7 +253,7 @@ const WASI = /*#__PURE__*/ (function () {
   }
   
   WASI.prototype.proc_exit = function proc_exit (rval) {
-    console.debug(`proc_exit(${rval})`)
+    debug(`proc_exit(${rval})`)
     return WasiErrno.ESUCCESS
   }
 
