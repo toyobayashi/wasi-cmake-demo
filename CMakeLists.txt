@@ -1,8 +1,11 @@
 cmake_minimum_required(VERSION 3.13.0)
 
+find_program(WASM_OPT "wasm-opt")
+
 project(wasitest)
 
 set(TARGET_TEST_EXE a)
+set(TARGET_ASYNCIFY_EXE b)
 
 add_executable(${TARGET_TEST_EXE} "src/base64.c" "src/main.c")
 set_target_properties(${TARGET_TEST_EXE} PROPERTIES SUFFIX ".wasm")
@@ -16,8 +19,31 @@ target_link_options(${TARGET_TEST_EXE} PRIVATE
   "-Wl,--initial-memory=16777216,--export-dynamic,--export=malloc,--export=free,--import-undefined,--export-table"
 )
 
+add_executable(${TARGET_ASYNCIFY_EXE} "src/asyncify/main.c")
+set_target_properties(${TARGET_ASYNCIFY_EXE} PROPERTIES SUFFIX ".wasm")
+
+target_link_options(${TARGET_ASYNCIFY_EXE} PRIVATE
+  "-v"
+  "-Wl,--initial-memory=16777216,--export-dynamic,--import-undefined"
+)
+
+set(ASYNCIFY_FLAGS "--asyncify" "--pass-arg=asyncify-imports@env.sleep")
+
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
   target_link_options(${TARGET_TEST_EXE} PRIVATE
     "-Wl,--strip-all"
   )
+  target_link_options(${TARGET_ASYNCIFY_EXE} PRIVATE
+    "-Wl,--strip-all"
+  )
+  list(APPEND ASYNCIFY_FLAGS "-O")
+  if(WASM_OPT)
+    add_custom_command(TARGET ${TARGET_TEST_EXE} POST_BUILD
+      COMMAND ${WASM_OPT} "-O" "$<TARGET_FILE:${TARGET_TEST_EXE}>" "-o" "$<TARGET_FILE:${TARGET_TEST_EXE}>")
+  endif()
+else()
+  list(APPEND ASYNCIFY_FLAGS "-g")
 endif()
+
+add_custom_command(TARGET ${TARGET_ASYNCIFY_EXE} POST_BUILD
+  COMMAND ${WASM_OPT} ${ASYNCIFY_FLAGS} "$<TARGET_FILE:${TARGET_ASYNCIFY_EXE}>" "-o" "$<TARGET_FILE:${TARGET_ASYNCIFY_EXE}>")
