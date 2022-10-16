@@ -33,6 +33,10 @@ export default async function (url, WASI) {
   const { instance } = source
 
   wasm = instance.exports
-  wasi.start(instance)
+  if (typeof wasm._start === 'function') {
+    wasi.start(instance)
+  } else {
+    wasi.initialize(instance)
+  }
   return wasm
 }
