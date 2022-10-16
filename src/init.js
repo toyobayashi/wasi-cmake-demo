@@ -1,42 +1,53 @@
-let wasm
+// TODO: asyncify
 
-export default async function (url, WASI) {
-  if (wasm) {
-    return wasm
+export class WasiModule {
+  constructor (wasi) {
+    this._wasi = wasi
+    this.instance = undefined
+    this.module = undefined
   }
-  const wasi = new WASI({
-    args: ['node', 'a.wasm'],
-    env: {
-      NODE_ENV: 'development',
-      WASI_SDK_PATH: '/tmp/wasi-sdk'
+
+  get exports () {
+    if (this.instance) {
+      return this.instance.exports
     }
-  })
-
-  const importObject = {
-    env: {
-      call_js (f) {
-        wasm.__indirect_function_table.get(f)()
-      }
-    },
-    wasi_snapshot_preview1: wasi.wasiImport
   }
 
-  let source
+  async load (url, imports = {}) {
+    if (this.instance) {
+      return this.instance.exports
+    }
 
-  if (typeof WebAssembly.instantiateStreaming === 'function') {
-    source = await WebAssembly.instantiateStreaming(fetch(url), importObject)
-  } else {
-    const bytes = url instanceof Uint8Array ? url : await (await fetch(url)).arrayBuffer()
-    source = await WebAssembly.instantiate(bytes, importObject)
+    const { wasi_snapshot_preview1: importWasiSnapshotPreview1, ...restImports } = imports
+
+    const importObject = {
+      wasi_snapshot_preview1: {
+        ...this._wasi.wasiImport,
+        ...importWasiSnapshotPreview1
+      },
+      ...restImports
+    }
+
+    let source
+  
+    if (typeof WebAssembly.instantiateStreaming === 'function') {
+      source = await WebAssembly.instantiateStreaming(fetch(url), importObject)
+    } else {
+      const bytes = url instanceof Uint8Array ? url : await (await fetch(url)).arrayBuffer()
+      source = await WebAssembly.instantiate(bytes, importObject)
+    }
+
+    const { instance, module } = source
+    console.log(instance)
+    this.instance = instance
+    this.module = module
+    return instance.exports
   }
 
-  const { instance } = source
-
-  wasm = instance.exports
-  if (typeof wasm._start === 'function') {
-    wasi.start(instance)
-  } else {
-    wasi.initialize(instance)
+  run () {
+    if (typeof this.instance.exports._start === 'function') {
+      return this._wasi.start(this.instance)
+    }
+    return this._wasi.initialize(this.instance)
   }
-  return wasm
 }
