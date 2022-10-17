@@ -27,7 +27,7 @@ if (typeof __webpack_public_path__ !== 'undefined') {
   const wasi = new WASI(wasiOptions)
   const wasmModule = await WasmModule.load(wasmUrl, imports, wasi)
   wasm = wasmModule.instance.exports
-  await wasmModule.run()
+  await (wasmModule.run().ret)
 } else {
   const isNodeJs = !!(typeof process === 'object' && process.versions && process.versions.node)
   
@@ -36,5 +36,5 @@ if (typeof __webpack_public_path__ !== 'undefined') {
   const wasi = new WASI(wasiOptions)
   const wasmModule = await WasmModule.load(isNodeJs ? await (await import('node:fs/promises')).readFile(url) : url, imports, wasi)
   wasm = wasmModule.instance.exports
-  await wasmModule.run()
+  await (wasmModule.run().ret)
 }
