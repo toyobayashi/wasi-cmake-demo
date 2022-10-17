@@ -77,7 +77,7 @@ export class Asyncify {
         this.value = await this.value
         this.assertState()
         this.exports.asyncify_start_rewind(this.dataPtr)
-        ret = f(...args)
+        ret = f()
       }
 
       this.assertState()

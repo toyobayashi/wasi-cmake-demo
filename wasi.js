@@ -123,14 +123,26 @@ export class WASI {
     validateFunction(_start, 'instance.exports._start')
     validateUndefined(_initialize, 'instance.exports._initialize')
 
+    let ret
     try {
-      _start()
+      ret = _start()
     } catch (err) {
       if (err !== kExitCode) {
         throw err
       }
     }
 
+    if (ret instanceof Promise) {
+      return ret.then(
+        () => this[kExitCode],
+        (err) => {
+          if (err !== kExitCode) {
+            throw err
+          }
+          return this[kExitCode]
+        }
+      )
+    }
     return this[kExitCode]
   }
 
@@ -148,7 +160,7 @@ export class WASI {
     validateUndefined(_start, 'instance.exports._start')
     if (_initialize !== undefined) {
       validateFunction(_initialize, 'instance.exports._initialize')
-      _initialize()
+      return _initialize()
     }
   }
 }
