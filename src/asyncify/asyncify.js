@@ -1,4 +1,4 @@
-import { WasiModule } from '../init.js'
+import { WasmModule } from '../init.js'
 
 let wasm
 
@@ -25,17 +25,16 @@ if (typeof __webpack_public_path__ !== 'undefined') {
   const wasmUrl = (await import('../../build/b.wasm')).default
   const { WASI } = await import('../../wasi.js')
   const wasi = new WASI(wasiOptions)
-  const wasiModule = new WasiModule(wasi)
-  wasm = await wasiModule.load(wasmUrl, imports)
-  await wasiModule.run()
+  const wasmModule = await WasmModule.load(wasmUrl, imports, wasi)
+  wasm = wasmModule.instance.exports
+  await wasmModule.run()
 } else {
   const isNodeJs = !!(typeof process === 'object' && process.versions && process.versions.node)
   
   const url = new URL('../../build/b.wasm', import.meta.url)
   const { WASI } = isNodeJs ? await import('node:wasi') : await import('../../wasi.js')
   const wasi = new WASI(wasiOptions)
-  const wasiModule = new WasiModule(wasi)
-  wasm = await wasiModule.load(isNodeJs ? await (await import('node:fs/promises')).readFile(url) : url, imports)
-  console.log(wasm)
-  await wasiModule.run()
+  const wasmModule = await WasmModule.load(isNodeJs ? await (await import('node:fs/promises')).readFile(url) : url, imports, wasi)
+  wasm = wasmModule.instance.exports
+  await wasmModule.run()
 }
