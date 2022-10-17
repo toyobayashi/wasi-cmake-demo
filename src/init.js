@@ -1,13 +1,28 @@
-// TODO: asyncify
+import { Asyncify, Instance } from './asyncify.js'
 
 /**
  * @param {string | URL | BufferSource} urlOrBuffer
  * @param {WebAssembly.Imports=} imports
  * @returns {Promise<WebAssembly.WebAssemblyInstantiatedSource>}
  */
-export async function load (urlOrBuffer, imports = {}) {
+export async function load (urlOrBuffer, imports, asyncify = false) {
+  if (imports && typeof imports !== 'object') {
+    throw new TypeError('imports must be an object or undefined')
+  }
+  imports = imports || {}
+
+  let asyncifyHelper
+  let source
+
+  if (asyncify) {
+    asyncifyHelper = new Asyncify()
+    imports = asyncifyHelper.wrapImports(imports)
+  }
+
   if (urlOrBuffer instanceof ArrayBuffer || ArrayBuffer.isView(urlOrBuffer)) {
-    return await WebAssembly.instantiate(urlOrBuffer, imports)
+    source = await WebAssembly.instantiate(urlOrBuffer, imports)
+    if (asyncify) asyncifyHelper.init(imports, source.instance)
+    return source
   }
 
   if (typeof urlOrBuffer !== 'string' && !(urlOrBuffer instanceof URL)) {
@@ -16,11 +31,16 @@ export async function load (urlOrBuffer, imports = {}) {
 
   if (typeof WebAssembly.instantiateStreaming === 'function') {
     try {
-      return await WebAssembly.instantiateStreaming(fetch(urlOrBuffer), imports)
+      source = await WebAssembly.instantiateStreaming(fetch(urlOrBuffer), imports)
+      if (asyncify) asyncifyHelper.init(imports, source.instance)
+      return source
     } catch (_) {}
   }
-  
-  return await WebAssembly.instantiate(urlOrBuffer, imports)
+  const response = await fetch(urlOrBuffer)
+  const buffer = await response.arrayBuffer()
+  source = await WebAssembly.instantiate(buffer, imports)
+  if (asyncify) asyncifyHelper.init(imports, source.instance)
+  return source
 }
 
 /**
@@ -28,18 +48,28 @@ export async function load (urlOrBuffer, imports = {}) {
  * @param {WebAssembly.Imports=} imports
  * @returns {WebAssembly.WebAssemblyInstantiatedSource}
  */
-export function loadSync (buffer, imports = {}) {
+export function loadSync (buffer, imports, asyncify = false) {
   if ((buffer instanceof ArrayBuffer) && !ArrayBuffer.isView(buffer)) {
     throw new TypeError('Invalid source')
   }
 
+  if (imports && typeof imports !== 'object') {
+    throw new TypeError('imports must be an object or undefined')
+  }
+  imports = imports || {}
+
   const module = new WebAssembly.Module(buffer)
-  const instance = new WebAssembly.Instance(module, imports)
+  const instance = asyncify ? new Instance(module, imports) : new WebAssembly.Instance(module, imports)
   return { instance, module }
 }
 
 export class WasmModule {
-  static async load (urlOrBuffer, imports = {}, wasi = undefined) {
+  static async load (urlOrBuffer, imports, wasi = undefined, asyncify = false) {
+    if (imports && typeof imports !== 'object') {
+      throw new TypeError('imports must be an object or undefined')
+    }
+    imports = imports || {}
+
     let importObject
 
     if (wasi) {
@@ -55,7 +85,7 @@ export class WasmModule {
       importObject = imports
     }
 
-    const source = await load(urlOrBuffer, importObject)
+    const source = await load(urlOrBuffer, importObject, asyncify)
     console.log(source)
 
     return new WasmModule(source, wasi)

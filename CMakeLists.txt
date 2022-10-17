@@ -27,20 +27,17 @@ target_link_options(${TARGET_ASYNCIFY_EXE} PRIVATE
   "-Wl,--initial-memory=16777216,--export-dynamic,--import-undefined"
 )
 
-set(ASYNCIFY_FLAGS "--asyncify" "--pass-arg=asyncify-imports@env.sleep")
+set(ASYNCIFY_FLAGS "--asyncify" "--pass-arg=asyncify-imports@env.async_sleep")
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
+  # https://github.com/WebAssembly/wasi-sdk/issues/254
   target_link_options(${TARGET_TEST_EXE} PRIVATE
-    "-Wl,--strip-all"
+    "-Wl,--strip-debug"
   )
   target_link_options(${TARGET_ASYNCIFY_EXE} PRIVATE
-    "-Wl,--strip-all"
+    "-Wl,--strip-debug"
   )
   list(APPEND ASYNCIFY_FLAGS "-O")
-  if(WASM_OPT)
-    add_custom_command(TARGET ${TARGET_TEST_EXE} POST_BUILD
-      COMMAND ${WASM_OPT} "-O" "$<TARGET_FILE:${TARGET_TEST_EXE}>" "-o" "$<TARGET_FILE:${TARGET_TEST_EXE}>")
-  endif()
 else()
   list(APPEND ASYNCIFY_FLAGS "-g")
 endif()
