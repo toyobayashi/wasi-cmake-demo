@@ -1,8 +1,33 @@
 import {
   WasiErrno,
-  WasiFileType
+  WasiFileType,
+  WasiWhence
 } from './wasi-types.js'
 import { getRights } from './wasi-rights.js'
+
+/**
+ * @param {Uint8Array[]} buffers
+ * @returns {Uint8Array}
+ */
+export function concatBuffer (buffers, size) {
+  let total = 0
+  if (typeof size === 'number' && size >= 0) {
+    total = size
+  } else {
+    for (let i = 0; i < buffers.length; i++) {
+      const buffer = buffers[i];
+      total += buffer.length
+    }
+  }
+  let pos = 0
+  const ret = new Uint8Array(total)
+  for (let i = 0; i < buffers.length; i++) {
+    const buffer = buffers[i];
+    ret.set(buffer, pos)
+    pos += buffer.length
+  }
+  return ret
+}
 
 class FileDescriptor {
   constructor (
@@ -27,72 +52,66 @@ class FileDescriptor {
   }
 }
 
-class StandardInput {
-  constructor () {
-    this._bufs = []
-  }
-
-  _push () {
-    const value = window.prompt()
-    if (value === null) return false
-    const buffer = new TextEncoder().encode(value + '\x0a')
-    this._bufs.push(buffer)
-    return true
-  }
-
-  read (u8arr) {
-    if (this._bufs.length === 0) {
-      if (!this._push()) {
-        return -WasiErrno.ECANCELED
-      }
-    }
-
-    let pos = 0
-    let left = u8arr.length
-    while (this._bufs.length > 0) {
-      const buf = this._bufs.shift()
-      if (left > buf.length) {
-        u8arr.set(buf, pos)
-        pos += buf.length
-        left -= buf.length
-      } else {
-        u8arr.set(buf.subarray(0, left), pos)
-        pos += left
-        this._bufs.unshift(buf.slice(left))
-        break
-      }
-    }
-    return pos
-  }
-}
-
-class OutputStream {
+class Stream {
   constructor (size) {
-    this._buf = new Uint8Array(size)
     this._pos = 0
+    this._size = size || 0
   }
 
-  write (buffer) {
-    this._buf.set(buffer, this._pos)
-    this._pos += buffer.byteLength
+  seek (offset, whence) {
+    if (whence === WasiWhence.SET) {
+      this._pos = offset
+    } else if (whence === WasiWhence.CUR) {
+      this._pos += offset
+    } else if (whence === WasiWhence.END) {
+      this._pos = this._size - offset
+    }
   }
 }
 
-class StandardOutput extends OutputStream {
-  constructor (size, print) {
-    super(size)
-    this._print = print
+class StandardInput extends Stream {
+  constructor () {
+    super(0)
   }
+
+  seek (_offset, _whence) {}
+
+  read () {
+    const value = window.prompt()
+    if (value === null) return new Uint8Array()
+    const buffer = new TextEncoder().encode(value + '\n')
+    return buffer
+  }
+}
+
+class StandardOutput extends Stream {
+  constructor (print) {
+    super(0)
+    this._print = print
+    this._buf = null
+  }
+
+  seek (_offset, _whence) {}
+
   write (buffer) {
-    super.write(buffer)
-    let index
-    while ((index = this._buf.indexOf(10)) !== -1) {
-      const str = new TextDecoder().decode(this._buf.subarray(0, index))
-      this._print(str)
-      this._buf.set(this._buf.subarray(index + 1, this._pos))
-      this._pos -= (index + 1)
-      this._buf.fill(0, this._pos)
+    if (this._buf) {
+      buffer = concatBuffer([this._buf, buffer])
+      this._buf = null
     }
+    let written = 0
+    let lastBegin = 0
+    let index
+    while ((index = buffer.indexOf(10, written)) !== -1) {
+      const str = new TextDecoder().decode(buffer.subarray(lastBegin, index))
+      this._print(str)
+      written += index - lastBegin + 1
+    }
+
+    if (written < buffer.length) {
+      this._buf = buffer.slice(written)
+    }
+  
+    return written
   }
 }
 
@@ -117,9 +136,9 @@ export class FileDescriptorTable {
     let errno = 0
     errno = insertStdio(this, options.in, 0, '<stdin>', new StandardInput()).errno
     if (errno > 0) throw new WebAssembly.RuntimeError(WasiErrno[errno])
-    errno = insertStdio(this, options.out, 1, '<stdout>', new StandardOutput(1024, console.log)).errno
+    errno = insertStdio(this, options.out, 1, '<stdout>', new StandardOutput(console.log)).errno
     if (errno > 0) throw new WebAssembly.RuntimeError(WasiErrno[errno])
-    errno = insertStdio(this, options.err, 2, '<stderr>', new StandardOutput(1024, console.error)).errno
+    errno = insertStdio(this, options.err, 2, '<stderr>', new StandardOutput(console.error)).errno
     if (errno > 0) throw new WebAssembly.RuntimeError(WasiErrno[errno])
   }
 

@@ -134,3 +134,9 @@ export const WasiRights = createEnum({
   SOCK_SHUTDOWN:           (BigInt(1) << BigInt(28)),
   SOCK_ACCEPT:             (BigInt(1) << BigInt(29))
 })
+
+export const WasiWhence = createEnum({
+  SET: 0,
+  CUR: 1,
+  END: 2
+})

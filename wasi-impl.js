@@ -3,7 +3,7 @@ import {
   WasiRights,
 } from './wasi-types.js'
 
-import { FileDescriptorTable } from './wasi-fd.js'
+import { FileDescriptorTable, concatBuffer } from './wasi-fd.js'
 
 function debug (...args) {
   if (typeof process === 'undefined' || process.type === 'renderer' || process.browser === true || process.__nwjs) {
@@ -13,6 +13,31 @@ function debug (...args) {
       console.debug(...args)
     }
   }
+}
+
+/**
+ * @param {Uint8Array[]} targets
+ * @param {Uint8Array} src
+ * @returns {number}
+ */
+function copyMemory (targets, src) {
+  if (targets.length === 0 || src.length === 0) return 0
+  let copied = 0
+  let left = src.length - copied
+  for (let i = 0; i < targets.length; ++i) {
+    const target = targets[i]
+    if (left < target.length) {
+      target.set(src.subarray(copied, copied + left), 0)
+      copied += left
+      left = 0
+      return copied
+    }
+
+    target.set(src.subarray(copied, copied + target.length), 0)
+    copied += target.length
+    left -= target.length
+  }
+  return copied
 }
 
 /** @class */
@@ -31,9 +56,9 @@ const WASI = /*#__PURE__*/ (function () {
     }
   }
 
-  function WASI (args, env, preopens, stdio) {
-    const encoder = new TextEncoder()
+  const encoder = new TextEncoder()
 
+  function WASI (args, env, preopens, stdio) {
     _wasi.set(this, {
       fds: new FileDescriptorTable({
         size: 3,
@@ -65,9 +90,8 @@ const WASI = /*#__PURE__*/ (function () {
     HEAP32[argv >> 2] = argv_buf
     const wasi = _wasi.get(this)
     const args = wasi.args
-    let encoder
     for (let i = 1; i < args.length; ++i) {
-      HEAP32[(argv >> 2) + i] = argv_buf + (encoder || (encoder = new TextEncoder())).encode(args.slice(0, i).join('\0') + '\0').length
+      HEAP32[(argv >> 2) + i] = argv_buf + encoder.encode(args.slice(0, i).join('\0') + '\0').length
     }
     HEAPU8.set(wasi.argvBuf, argv_buf)
     return WasiErrno.ESUCCESS
@@ -95,9 +119,8 @@ const WASI = /*#__PURE__*/ (function () {
     HEAP32[environ >> 2] = environ_buf
     const wasi = _wasi.get(this)
     const env = wasi.env
-    let encoder
     for (let i = 1; i < env.length; ++i) {
-      HEAP32[(environ >> 2) + i] = environ_buf + (encoder || (encoder = new TextEncoder())).encode(env.slice(0, i).join('\0') + '\0').length
+      HEAP32[(environ >> 2) + i] = environ_buf + encoder.encode(env.slice(0, i).join('\0') + '\0').length
     }
     HEAPU8.set(wasi.envBuf, environ_buf)
     return WasiErrno.ESUCCESS
@@ -149,7 +172,7 @@ const WASI = /*#__PURE__*/ (function () {
       return WasiErrno.EINVAL
     }
     const { HEAPU8, HEAP32, HEAPU32 } = getMemory(this)
-    let nread = 0
+
     const wasi = _wasi.get(this)
     const { fileDescriptor, errno } = wasi.fds.get(fd, WasiRights.FD_READ, BigInt(0))
     if (errno > 0) {
@@ -157,20 +180,13 @@ const WASI = /*#__PURE__*/ (function () {
       return errno
     }
 
-    for (let i = 0; i < iovslen; ++i) {
+    const buffer = fileDescriptor.stream.read()
+    const ioVecs = Array.from({ length: iovslen }, (_, i) => {
       const buf = HEAP32[(iovs + (i * 8)) >> 2]
       const bufLen = HEAPU32[((iovs + (i * 8)) >> 2) + 1]
-
-      const read = fileDescriptor.stream.read(HEAPU8.subarray(buf, buf + bufLen))
-      if (read < 0) {
-        HEAPU32[size >> 2] = 0
-        return WasiErrno.ESUCCESS
-      }
-      nread += read
-      if (read < bufLen) {
-        break
-      }
-    }
+      return HEAPU8.subarray(buf, buf + bufLen)
+    })
+    const nread = copyMemory(ioVecs, buffer)
 
     HEAPU32[size >> 2] = nread
     return WasiErrno.ESUCCESS
@@ -182,22 +198,20 @@ const WASI = /*#__PURE__*/ (function () {
       return WasiErrno.EINVAL
     }
     const { HEAPU8, HEAP32, HEAPU32 } = getMemory(this)
-    let nwritten = 0
+
     const wasi = _wasi.get(this)
     const { fileDescriptor, errno } = wasi.fds.get(fd, WasiRights.FD_WRITE, BigInt(0))
     if (errno > 0) {
       HEAPU32[size >> 2] = 0
       return errno
     }
-    for (let i = 0; i < iovslen; ++i) {
+
+    const buffer = concatBuffer(Array.from({ length: iovslen }, (_, i) => {
       const buf = HEAP32[(iovs + (i * 8)) >> 2]
       const bufLen = HEAPU32[((iovs + (i * 8)) >> 2) + 1]
-      if (bufLen === 0) continue
-
-      const data = HEAPU8.subarray(buf, buf + bufLen)
-      fileDescriptor.stream.write(data)
-      nwritten += bufLen
-    }
+      return HEAPU8.subarray(buf, buf + bufLen)
+    }))
+    const nwritten = fileDescriptor.stream.write(buffer)
 
     HEAPU32[size >> 2] = nwritten
     return WasiErrno.ESUCCESS
